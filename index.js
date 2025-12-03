@@ -4,13 +4,27 @@ import router from "./routes/users.js";
 import { Server } from "socket.io";
 import http from "http";
 import cors from "cors";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 app.use(express.json());
+const clientUrls = process.env.CLIENT_URLS
+  ? process.env.CLIENT_URLS.split(",").map((s) => s.trim())
+  : [process.env.CLIENT_URL || "http://localhost:5173"];
+const corsMethods = process.env.CORS_METHODS
+  ? process.env.CORS_METHODS.split(",").map((s) => s.trim())
+  : ["GET", "POST"];
+const corsCredentials = process.env.CORS_CREDENTIALS
+  ? process.env.CORS_CREDENTIALS === "true"
+  : true;
+
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
-    methods: ["GET", "POST"],
+    origin: clientUrls,
+    methods: corsMethods,
+    credentials: corsCredentials,
   })
 );
 
@@ -20,9 +34,9 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:5173"],
-    method: ["GET", "POST"],
-    credentials: true,
+    origin: clientUrls,
+    methods: corsMethods,
+    credentials: corsCredentials,
   },
 });
 
@@ -64,23 +78,21 @@ io.on("connection", async (socket) => {
     const username = socket.username;
 
     if (!username || !users.has(username)) return;
-
-    // Get user's rooms
     const userRooms = users.get(username).rooms || [];
 
-    // Remove user from each room's participant list
+
     userRooms.forEach((roomId) => {
       if (rooms.has(roomId)) {
         const room = rooms.get(roomId);
         room.participants = room.participants.filter((u) => u !== username);
         rooms.set(roomId, room);
 
-        // Notify remaining participants
+
         io.to(roomId).emit("participants", room.participants);
       }
     });
 
-    // Remove user from users map
+
     users.delete(username);
 
     console.log("User disconnected:", username);
@@ -133,16 +145,16 @@ io.on("connection", async (socket) => {
   socket.on("createRoom", (roomId, roomData) => {
     const username = socket.username;
 
-    // First, remove user from all existing rooms
+
     if (users.has(username)) {
       const user = users.get(username);
-      const currentRooms = [...user.rooms]; // Copy array to avoid modification during iteration
+      const currentRooms = [...user.rooms]; 
 
       currentRooms.forEach((existingRoomId) => {
-        // Leave the socket room
+
         socket.leave(existingRoomId);
 
-        // Remove user from room's participants
+
         if (rooms.has(existingRoomId)) {
           const existingRoom = rooms.get(existingRoomId);
           existingRoom.participants = existingRoom.participants.filter(
@@ -150,20 +162,20 @@ io.on("connection", async (socket) => {
           );
           rooms.set(existingRoomId, existingRoom);
 
-          // Notify remaining participants
+
           io.to(existingRoomId).emit("participants", existingRoom.participants);
         }
       });
 
-      // Clear user's rooms array
+
       user.rooms = [];
       users.set(username, user);
     }
 
-    // Now join the new room
+
     socket.join(roomId);
 
-    // Create room with admin as first participant
+
     rooms.set(roomId, {
       ...roomData,
       roomId: roomId,
@@ -171,10 +183,10 @@ io.on("connection", async (socket) => {
       createdAt: Date.now(),
     });
 
-    // Add room to user's rooms array
+
     if (users.has(username)) {
       const user = users.get(username);
-      user.rooms = [roomId]; // Only this room
+      user.rooms = [roomId];
       users.set(username, user);
     }
 
@@ -189,18 +201,18 @@ io.on("connection", async (socket) => {
   socket.on("joinRoom", (roomId, joinerId) => {
     console.log("Attempting to join room:", roomId, "by user:", joinerId);
 
-    // Check if room exists
+
     if (rooms.has(roomId)) {
-      // First, remove user from all existing rooms
+
       if (users.has(joinerId)) {
         const user = users.get(joinerId);
-        const currentRooms = [...user.rooms]; // Copy array to avoid modification during iteration
+        const currentRooms = [...user.rooms];
 
         currentRooms.forEach((existingRoomId) => {
-          // Leave the socket room
+
           socket.leave(existingRoomId);
 
-          // Remove user from room's participants
+
           if (rooms.has(existingRoomId)) {
             const existingRoom = rooms.get(existingRoomId);
             existingRoom.participants = existingRoom.participants.filter(
@@ -208,7 +220,7 @@ io.on("connection", async (socket) => {
             );
             rooms.set(existingRoomId, existingRoom);
 
-            // Notify remaining participants in old room
+
             io.to(existingRoomId).emit(
               "participants",
               existingRoom.participants
@@ -216,26 +228,26 @@ io.on("connection", async (socket) => {
           }
         });
 
-        // Clear user's rooms array
+
         user.rooms = [];
         users.set(joinerId, user);
       }
 
-      // Now join the new room
+
       socket.join(roomId);
 
       const room = rooms.get(roomId);
 
-      // Add user to room's participants if not already there
+
       if (!room.participants.includes(joinerId)) {
         room.participants.push(joinerId);
         rooms.set(roomId, room);
       }
 
-      // Add room to user's rooms array
+
       if (users.has(joinerId)) {
         const user = users.get(joinerId);
-        user.rooms = [roomId]; // Only this room
+        user.rooms = [roomId]; 
         users.set(joinerId, user);
       }
 
@@ -257,19 +269,19 @@ io.on("connection", async (socket) => {
 
     const allRooms = Array.from(rooms.keys());
 
-    // No rooms available
+
     if (allRooms.length === 0) {
       socket.emit("joinRoomFailed", "No rooms available");
       return;
     }
 
-    // Pick a random room
+
     const randomRoomId = allRooms[Math.floor(Math.random() * allRooms.length)];
     const randomRoom = rooms.get(randomRoomId);
 
     console.log("Random room selected:", randomRoomId);
 
-    // First remove user from all other rooms (same logic as joinRoom)
+
     if (users.has(joinerId)) {
       const user = users.get(joinerId);
       const currentRooms = [...user.rooms];
@@ -292,30 +304,30 @@ io.on("connection", async (socket) => {
       users.set(joinerId, user);
     }
 
-    // Now join the random room
+
     socket.join(randomRoomId);
 
-    // Add user to participants
+
     if (!randomRoom.participants.includes(joinerId)) {
       randomRoom.participants.push(joinerId);
       rooms.set(randomRoomId, randomRoom);
     }
 
-    // Update user's joined rooms list
+
     if (users.has(joinerId)) {
       const user = users.get(joinerId);
       user.rooms = [randomRoomId];
       users.set(joinerId, user);
     }
 
-    // Send exact same data as normal joinRoom
+
     socket.emit("roomJoined", {
       roomId: randomRoomId,
       roomData: randomRoom,
       participants: randomRoom.participants,
     });
 
-    // Notify entire room about updated participants
+
     io.to(randomRoomId).emit("participants", randomRoom.participants);
 
     console.log("User joined random room:", randomRoomId, randomRoom.participants);
@@ -349,7 +361,7 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("giveListOfRooms", () => {
-    // Convert Map to Array of room objects
+
     const roomsArray = Array.from(rooms.values());
 
     socket.emit("ListOfRooms", roomsArray);
@@ -363,6 +375,7 @@ io.on("connection", async (socket) => {
 
 });
 
-server.listen(5050, () => {
-  console.log("Server started successfully on port 5050");
+const PORT = process.env.PORT || 5050;
+server.listen(PORT, () => {
+  console.log(`Server started successfully on port ${PORT}`);
 });
