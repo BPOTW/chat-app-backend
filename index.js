@@ -9,13 +9,17 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
+
 app.use(express.json());
+
 const clientUrls = process.env.CLIENT_URLS
   ? process.env.CLIENT_URLS.split(",").map((s) => s.trim())
   : [process.env.CLIENT_URL || "http://localhost:5173"];
+
 const corsMethods = process.env.CORS_METHODS
   ? process.env.CORS_METHODS.split(",").map((s) => s.trim())
   : ["GET", "POST"];
+
 const corsCredentials = process.env.CORS_CREDENTIALS
   ? process.env.CORS_CREDENTIALS === "true"
   : true;
@@ -74,29 +78,20 @@ app.post("/check-room", (req, res) => {
 
 
 io.on("connection", async (socket) => {
+  console.log('socket connnected');
   socket.on("disconnect", () => {
     const username = socket.username;
-
     if (!username || !users.has(username)) return;
     const userRooms = users.get(username).rooms || [];
-
-
     userRooms.forEach((roomId) => {
       if (rooms.has(roomId)) {
         const room = rooms.get(roomId);
         room.participants = room.participants.filter((u) => u !== username);
         rooms.set(roomId, room);
-
-
         io.to(roomId).emit("participants", room.participants);
       }
     });
-
-
     users.delete(username);
-
-    console.log("User disconnected:", username);
-    console.log("Active rooms:", Array.from(rooms.keys()));
   });
 
   socket.on("setUsername", (username, data) => {
@@ -110,23 +105,19 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("leaveRoom", (roomId) => {
-    console.log("leaving room", roomId);
     const username = socket.username;
     if (!username) return;
 
     socket.leave(roomId);
-    console.log("2");
     if (users.has(username)) {
       const user = users.get(username);
       user.rooms = user.rooms.filter((r) => r !== roomId);
       users.set(username, user);
     }
-    console.log("2");
     if (rooms.has(roomId)) {
       const room = rooms.get(roomId);
       room.participants = room.participants.filter((u) => u !== username);
       rooms.set(roomId, room);
-      console.log("updated rooms partcipants", rooms);
       io.to(roomId).emit("participants", room.participants);
     }
   });
@@ -144,45 +135,31 @@ io.on("connection", async (socket) => {
 
   socket.on("createRoom", (roomId, roomData) => {
     const username = socket.username;
-
-
     if (users.has(username)) {
       const user = users.get(username);
       const currentRooms = [...user.rooms]; 
-
       currentRooms.forEach((existingRoomId) => {
-
         socket.leave(existingRoomId);
-
-
         if (rooms.has(existingRoomId)) {
           const existingRoom = rooms.get(existingRoomId);
           existingRoom.participants = existingRoom.participants.filter(
             (u) => u !== username
           );
           rooms.set(existingRoomId, existingRoom);
-
-
           io.to(existingRoomId).emit("participants", existingRoom.participants);
         }
       });
 
-
       user.rooms = [];
       users.set(username, user);
     }
-
-
     socket.join(roomId);
-
-
     rooms.set(roomId, {
       ...roomData,
       roomId: roomId,
       participants: [roomData.adminId],
       createdAt: Date.now(),
     });
-
 
     if (users.has(username)) {
       const user = users.get(username);
@@ -191,36 +168,22 @@ io.on("connection", async (socket) => {
     }
 
     const room = rooms.get(roomId);
-    io.to(roomId).emit("roomCreated", {
-      roomId: roomId,
-      roomData: room,
-      participants: room.participants,
-    });
+    io.to(roomId).emit("roomCreated", room);
   });
 
   socket.on("joinRoom", (roomId, joinerId) => {
-    console.log("Attempting to join room:", roomId, "by user:", joinerId);
-
-
     if (rooms.has(roomId)) {
-
       if (users.has(joinerId)) {
         const user = users.get(joinerId);
         const currentRooms = [...user.rooms];
-
         currentRooms.forEach((existingRoomId) => {
-
           socket.leave(existingRoomId);
-
-
           if (rooms.has(existingRoomId)) {
             const existingRoom = rooms.get(existingRoomId);
             existingRoom.participants = existingRoom.participants.filter(
               (u) => u !== joinerId
             );
             rooms.set(existingRoomId, existingRoom);
-
-
             io.to(existingRoomId).emit(
               "participants",
               existingRoom.participants
@@ -228,59 +191,40 @@ io.on("connection", async (socket) => {
           }
         });
 
-
         user.rooms = [];
         users.set(joinerId, user);
       }
 
-
       socket.join(roomId);
-
       const room = rooms.get(roomId);
-
 
       if (!room.participants.includes(joinerId)) {
         room.participants.push(joinerId);
         rooms.set(roomId, room);
       }
-
-
       if (users.has(joinerId)) {
         const user = users.get(joinerId);
         user.rooms = [roomId]; 
         users.set(joinerId, user);
       }
 
-      socket.emit("roomJoined", {
-        roomId: roomId,
-        roomData: room,
-        participants: room.participants,
-      });
-      console.log(rooms);
+      socket.emit("roomJoined", room);
       io.to(roomId).emit("participants", room.participants);
     } else {
-      console.log("Room not found:", roomId);
       socket.emit("joinRoomFailed", "Room does not exist");
     }
   });
 
   socket.on("joinRandomRoom", (joinerId) => {
-    console.log("User wants to join a random room:", joinerId);
-
     const allRooms = Array.from(rooms.keys());
-
 
     if (allRooms.length === 0) {
       socket.emit("joinRoomFailed", "No rooms available");
       return;
     }
 
-
     const randomRoomId = allRooms[Math.floor(Math.random() * allRooms.length)];
     const randomRoom = rooms.get(randomRoomId);
-
-    console.log("Random room selected:", randomRoomId);
-
 
     if (users.has(joinerId)) {
       const user = users.get(joinerId);
@@ -303,34 +247,19 @@ io.on("connection", async (socket) => {
       user.rooms = [];
       users.set(joinerId, user);
     }
-
-
     socket.join(randomRoomId);
-
-
     if (!randomRoom.participants.includes(joinerId)) {
       randomRoom.participants.push(joinerId);
       rooms.set(randomRoomId, randomRoom);
     }
-
-
     if (users.has(joinerId)) {
       const user = users.get(joinerId);
       user.rooms = [randomRoomId];
       users.set(joinerId, user);
     }
 
-
-    socket.emit("roomJoined", {
-      roomId: randomRoomId,
-      roomData: randomRoom,
-      participants: randomRoom.participants,
-    });
-
-
+    socket.emit("roomJoined", randomRoom);
     io.to(randomRoomId).emit("participants", randomRoom.participants);
-
-    console.log("User joined random room:", randomRoomId, randomRoom.participants);
   });
 
   socket.on("checkRoom", (data) => {
@@ -370,8 +299,8 @@ io.on("connection", async (socket) => {
 
   socket.on("updateRoomData", (roomId, roomData) => {
     rooms.set(roomId,roomData);
+    io.emit('roomUpdated',rooms.get(roomId));
   });
-
 
 });
 
